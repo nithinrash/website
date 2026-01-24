@@ -1321,6 +1321,11 @@ section {
 @media (max-width: 480px) {
     .hero {
         padding: 150px 16px 40px;
+        background: linear-gradient(135deg, #efeafa 0%, #fce7f3 100%);
+    }
+
+    .hero-bg-shapes {
+        display: none;
     }
 
     .hero-buttons {
@@ -1342,5 +1347,9 @@ section {
         width: 100%;
         max-width: 300px;
         margin: 0 auto;
+    }
+
+    .mobile-hidden {
+        display: none !important;
     }
 }

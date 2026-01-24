@@ -112,6 +112,49 @@
             font-weight: 700;
             color: #0B2A6E;
         }
+
+        /* Mobile Optimizations */
+        @media (max-width: 576px) {
+            h1 {
+                font-size: 1rem !important;
+            }
+
+            .badge {
+                font-size: 0.7em !important;
+            }
+
+            .msg-user {
+                padding: 0.75rem;
+                font-size: 0.95rem;
+            }
+
+            .card-body {
+                padding: 0.75rem !important;
+            }
+
+            .table {
+                font-size: 0.85rem;
+            }
+
+            #btn-send {
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+            }
+
+            /* Better space usage on small screens */
+            #main-container {
+                height: 100dvh;
+                /* dynamic viewport height for mobile browsers */
+            }
+
+            header.p-3 {
+                padding: 0.75rem !important;
+            }
+
+            footer.p-3 {
+                padding: 0.75rem !important;
+            }
+        }
     </style>
 </head>
 
@@ -145,7 +188,7 @@
             <div class="card shadow-sm border-secondary-subtle">
                 <div class="card-body p-2 d-flex gap-2">
                     <textarea id="input" rows="1" class="form-control border-0 shadow-none" style="resize: none;"
-                        placeholder='Type a topic (e.g. "make 16 Q&A on Python Programming")'></textarea>
+                        placeholder='Type a topic (e.g."Python Coding")'></textarea>
                     <button id="btn-send" class="btn btn-primary d-flex align-items-center gap-2 px-4">
                         <i class="bi bi-send-fill"></i>
                         <span class="d-none d-sm-inline">Send</span>
