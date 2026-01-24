@@ -103,6 +103,8 @@ function initCounterAnimation() {
 
     const animateCounter = (element) => {
         const target = parseFloat(element.dataset.target);
+        // data-suffix can be empty string, so check for undefined
+        const suffix = element.dataset.suffix !== undefined ? element.dataset.suffix : '+';
         const duration = 2000; // 2 seconds
         const increment = target / (duration / 16); // 60fps
         let current = 0;
@@ -116,10 +118,10 @@ function initCounterAnimation() {
                     element.textContent = (current / 1000000).toFixed(1) + 'M+';
                 } else if (target >= 1000) {
                     element.textContent = Math.floor(current / 1000) + 'K+';
-                } else if (target < 10) {
+                } else if (target < 10 && !Number.isInteger(target)) {
                     element.textContent = current.toFixed(1);
                 } else {
-                    element.textContent = Math.floor(current) + '+';
+                    element.textContent = Math.floor(current) + suffix;
                 }
 
                 requestAnimationFrame(updateCounter);
@@ -129,10 +131,10 @@ function initCounterAnimation() {
                     element.textContent = (target / 1000000).toFixed(0) + 'M+';
                 } else if (target >= 1000) {
                     element.textContent = Math.floor(target / 1000) + 'K+';
-                } else if (target < 10) {
+                } else if (target < 10 && !Number.isInteger(target)) {
                     element.textContent = target.toFixed(1);
                 } else {
-                    element.textContent = target + '+';
+                    element.textContent = target + suffix;
                 }
             }
         };

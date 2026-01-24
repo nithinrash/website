@@ -833,6 +833,61 @@ section {
 }
 
 /* ============================================
+   LEARNING SECTION
+   ============================================ */
+.learning {
+    background: var(--white);
+    position: relative;
+}
+
+.learning-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 30px;
+    margin-top: 40px;
+}
+
+.learning-card {
+    background: var(--gray-50);
+    padding: 40px 30px;
+    border-radius: 20px;
+    text-align: center;
+    border: 1px solid var(--gray-100);
+    transition: all var(--transition-base);
+}
+
+.learning-card:hover {
+    transform: translateY(-5px);
+    background: var(--white);
+    box-shadow: var(--shadow-md);
+    border-color: var(--primary-light);
+}
+
+.learning-icon {
+    font-size: 3rem;
+    margin-bottom: 20px;
+    display: inline-block;
+}
+
+.learning-card h3 {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: 15px;
+}
+
+.learning-card p {
+    color: var(--gray-500);
+    line-height: 1.6;
+}
+
+@media (max-width: 768px) {
+    .learning-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ============================================
    FEATURES SECTION
    ============================================ */
 .features {
@@ -1265,7 +1320,7 @@ section {
 
 @media (max-width: 480px) {
     .hero {
-        padding: 100px 16px 40px;
+        padding: 150px 16px 40px;
     }
 
     .hero-buttons {
