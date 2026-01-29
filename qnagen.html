@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>QnAGen</title>
+    <title>Hurup (Groq + Bootstrap 5)</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
@@ -112,50 +112,6 @@
             font-weight: 700;
             color: #0B2A6E;
         }
-
-        /* Mobile Optimizations */
-        @media (max-width: 576px) {
-            h1 {
-                font-size: 1rem !important;
-            }
-
-            .badge {
-                font-size: 0.7em !important;
-            }
-
-            .msg-user {
-                padding: 0.75rem;
-                font-size: 0.95rem;
-            }
-
-            .card-body {
-                padding: 0.75rem !important;
-            }
-
-            .table {
-                font-size: 0.85rem;
-            }
-
-            #btn-send {
-                padding-left: 1rem !important;
-                padding-right: 1rem !important;
-            }
-
-            /* Better space usage on small screens */
-            #main-container {
-                height: 100dvh;
-                /* dynamic viewport height for mobile browsers */
-            }
-
-            header.p-3 {
-                padding: 0.75rem !important;
-            }
-
-            footer.p-3 {
-                padding: 0.75rem !important;
-                padding-bottom: 75px !important;
-            }
-        }
     </style>
 </head>
 
@@ -177,8 +133,28 @@
                     <i class="bi bi-sun-fill d-none d-dark-inline"></i>
                     <i class="bi bi-moon-stars-fill d-inline d-dark-none"></i>
                 </button>
+                <button id="btn-clear-storage" class="btn btn-outline-danger btn-sm ms-2"
+                    title="Clear Game Logic Override">
+                    <i class="bi bi-trash"></i>
+                </button>
             </div>
         </header>
+
+        <script>
+            document.getElementById('btn-clear-storage').onclick = () => {
+                const currentPort = window.location.port;
+                if (currentPort === '5173') {
+                    if (confirm('Clear saved custom game data?')) {
+                        localStorage.removeItem('HURUP_DEV_OVERRIDE_DATA');
+                        alert('Cleared! Reload index.html to see defaults.');
+                        window.location.reload();
+                    }
+                } else {
+                    alert('Opening main game to clear data...');
+                    window.open('http://localhost:5173#clear', '_blank');
+                }
+            };
+        </script>
 
         <main id="chat-scroll-area" class="p-3">
             <div id="chat" class="d-flex flex-column gap-4">
@@ -189,13 +165,15 @@
             <div class="card shadow-sm border-secondary-subtle">
                 <div class="card-body p-2 d-flex gap-2">
                     <textarea id="input" rows="1" class="form-control border-0 shadow-none" style="resize: none;"
-                        placeholder='Type a topic e.g."Python Coding"'></textarea>
+                        placeholder='Type a topic (e.g. "make 16 Q&A on Python Programming")'></textarea>
                     <button id="btn-send" class="btn btn-primary d-flex align-items-center gap-2 px-4">
                         <i class="bi bi-send-fill"></i>
                         <span class="d-none d-sm-inline">Send</span>
                     </button>
                 </div>
-
+                <div class="card-footer py-1 bg-transparent border-0 text-muted small">
+                    Enter to send &middot; Shift+Enter for new line
+                </div>
             </div>
         </footer>
     </div>
@@ -314,11 +292,8 @@
                             style="max-height: 300px;"><code class="small" data-json></code></pre>
                     </div>
                     <div class="card-footer bg-body-tertiary d-flex flex-wrap gap-2">
-                        <button class="btn-copy-json btn btn-sm btn-outline-secondary">
-                            <i class="bi bi-clipboard"></i> Copy
-                        </button>
-                        <button class="btn-download-json btn btn-sm btn-outline-secondary">
-                            <i class="bi bi-download"></i> .json
+                        <button class="btn-save-browser btn btn-sm btn-outline-primary">
+                            <i class="bi bi-hdd-network-fill"></i> Play
                         </button>
                     </div>
                 </div>
@@ -362,6 +337,16 @@
 
         function escapeHTML(s) {
             return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
+        }
+
+        /* ===================== CRYPTO LOGIC ===================== */
+        const SECRET_KEY = "HURUP_SECURE_KEY_v1";
+        function encrypt(text) {
+            let result = '';
+            for (let i = 0; i < text.length; i++) {
+                result += String.fromCharCode(text.charCodeAt(i) ^ SECRET_KEY.charCodeAt(i % SECRET_KEY.length));
+            }
+            return btoa(result);
         }
 
         /* ===================== GAME LOGIC ===================== */
@@ -419,7 +404,7 @@
 
             /* --- POSITIONING CONFIG --- */
             const USER_POSITION_TWEAK = {
-                ANGULAR_OFFSET_DEG: 9.0,   // Rotates items along the ring
+                ANGULAR_OFFSET_DEG: 7.5,   // Rotates items along the ring
                 RADIAL_OFFSET_FACTOR: 0.025, // Distance from ring (2.5%)
                 VERTICAL_PX: 0             // Up/Down shift in pixels
             };
@@ -741,12 +726,26 @@
             btnPlay.onclick = () => launchGame(obj);
             node.querySelector('.card-footer').appendChild(btnPlay);
 
-            node.querySelector('.btn-copy-json').onclick = async () => { await navigator.clipboard.writeText(JSON.stringify(obj, null, 2)); showToast('Copied JSON'); };
-            node.querySelector('.btn-download-json').onclick = () => {
-                const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json;charset=utf-8' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a'); a.href = url; a.download = 'wheel.json';
-                document.body.appendChild(a); a.click(); URL.revokeObjectURL(url); a.remove();
+            node.querySelector('.btn-save-browser').onclick = () => {
+                const jsonStr = JSON.stringify(obj, null, 2);
+                const encrypted = encrypt(jsonStr);
+
+                // Check if we're on the same port as Vite (5173)
+                const currentPort = window.location.port;
+                const isViteServer = currentPort === '5173';
+
+                if (isViteServer) {
+                    // Same origin - save directly to localStorage
+                    localStorage.setItem('HURUP_DEV_OVERRIDE_DATA', encrypted);
+                    showToast('✅ Saved! Reload the main game.');
+                    alert('Data saved! Now reload index.html to see your questions.');
+                } else {
+                    // Different origin (e.g., Live Server on 5500) - use URL transfer
+                    const targetUrl = 'http://localhost:5173#import=' + encodeURIComponent(encrypted);
+                    showToast('Opening game to transfer data...');
+                    alert('You are on port ' + currentPort + ' (Live Server?).\n\nThe main game is on port 5173.\n\nA new tab will open to transfer the data.');
+                    window.open(targetUrl, '_blank');
+                }
             };
 
             chat.appendChild(node);
@@ -814,7 +813,7 @@ CRITICAL: YOU MUST GENERATE EXACTLY 24 ROWS.
 ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
         }
         function buildJSONSystem(tsv, topic) {
-            return `You are a JSON Generator. Input TSV:\n${tsv}\nOutput JSON object with keys: qas (array of 16 objects with key, question, answer - ONLY first 16 rows), innerOrder (16 keywords), outerFlags (all 24 answers). ALL strings must be UNIQUE.`;
+            return `You are a JSON Generator. Input TSV:\n${tsv}\nOutput JSON object with keys: qas (array of 16 objects with key, question, answer - ONLY first 16 rows), innerOrder (16 keywords), outerFlags (all 24 answers). ALL strings must be UNIQUE. Note: Use "key" as the property name for the keyword in the qas objects.`;
         }
 
         // Step 2: Generate unique meaningful keywords for each question
@@ -1178,5 +1177,3 @@ Output ONLY the label.`;
 </body>
 
 </html>
-
-
