@@ -730,22 +730,10 @@
                 const jsonStr = JSON.stringify(obj, null, 2);
                 const encrypted = encrypt(jsonStr);
 
-                // Check if we're on the same port as Vite (5173)
-                const currentPort = window.location.port;
-                const isViteServer = currentPort === '5173';
-
-                if (isViteServer) {
-                    // Same origin - save directly to localStorage
-                    localStorage.setItem('HURUP_DEV_OVERRIDE_DATA', encrypted);
-                    showToast('✅ Saved! Reload the main game.');
-                    alert('Data saved! Now reload index.html to see your questions.');
-                } else {
-                    // Different origin (e.g., Live Server on 5500) - use URL transfer
-                    const targetUrl = 'http://localhost:5173#import=' + encodeURIComponent(encrypted);
-                    showToast('Opening game to transfer data...');
-                    alert('You are on port ' + currentPort + ' (Live Server?).\n\nThe main game is on port 5173.\n\nA new tab will open to transfer the data.');
-                    window.open(targetUrl, '_blank');
-                }
+                // Transfer data to the production game on GitHub Pages
+                const targetUrl = 'https://hurup.in/dist/index.html#import=' + encodeURIComponent(encrypted);
+                showToast('Opening game with your custom questions...');
+                window.open(targetUrl, '_blank');
             };
 
             chat.appendChild(node);
@@ -1177,4 +1165,3 @@ Output ONLY the label.`;
 </body>
 
 </html>
-
