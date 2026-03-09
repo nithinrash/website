@@ -8,6 +8,8 @@
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.js"></script>
 
     <style>
         /* Custom Styles to augment Bootstrap */
@@ -112,6 +114,43 @@
             font-weight: 700;
             color: #0B2A6E;
         }
+
+        /* Camera Overlay */
+        #camera-overlay {
+            background-color: #000;
+        }
+
+        #camera-overlay video {
+            object-fit: cover;
+        }
+
+        .cam-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.3rem;
+            transition: transform 0.15s, opacity 0.15s;
+        }
+
+        .cam-btn:active {
+            transform: scale(0.9);
+        }
+
+        .cam-shutter {
+            width: 72px;
+            height: 72px;
+            background: #fff;
+            border: 4px solid rgba(255, 255, 255, 0.5);
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.2);
+        }
+
+        .cam-shutter:active {
+            background: #ccc;
+        }
     </style>
 </head>
 
@@ -162,10 +201,37 @@
         </main>
 
         <footer class="p-3 border-top bg-body z-3">
+            <div id="image-preview-container" class="mb-2 d-none position-relative" style="width: fit-content;">
+                <img id="image-preview" src="" class="img-thumbnail bg-secondary-subtle"
+                    style="max-height: 80px; border-radius: 8px;">
+                <span id="image-preview-label" class="badge bg-dark position-absolute bottom-0 start-0 m-1 small"
+                    style="font-size: 9px;"></span>
+                <button id="btn-remove-image"
+                    class="btn btn-sm btn-danger position-absolute top-0 start-100 translate-middle rounded-circle shadow"
+                    style="width: 24px; height: 24px; padding: 0; line-height: 1;">
+                    <i class="bi bi-x"></i>
+                </button>
+            </div>
+
             <div class="card shadow-sm border-secondary-subtle">
                 <div class="card-body p-2 d-flex gap-2">
+                    <input type="file" id="file-input" accept="image/*,application/pdf" class="d-none">
+
+                    <button id="btn-attach"
+                        class="btn btn-outline-secondary d-flex align-items-center justify-content-center"
+                        title="Attach Image or PDF">
+                        <i class="bi bi-paperclip"></i>
+                    </button>
+
+                    <button id="btn-camera"
+                        class="btn btn-outline-secondary d-flex align-items-center justify-content-center"
+                        title="Open Camera">
+                        <i class="bi bi-camera-fill"></i>
+                    </button>
+
                     <textarea id="input" rows="1" class="form-control border-0 shadow-none" style="resize: none;"
-                        placeholder='Type a topic (e.g. "make 16 Q&A on Python Programming")'></textarea>
+                        placeholder='Type a topic, attach a file, or use camera...'></textarea>
+
                     <button id="btn-send" class="btn btn-primary d-flex align-items-center gap-2 px-4">
                         <i class="bi bi-send-fill"></i>
                         <span class="d-none d-sm-inline">Send</span>
@@ -218,6 +284,31 @@
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Camera Overlay -->
+    <div id="camera-overlay" class="position-fixed top-0 start-0 w-100 h-100 d-none z-3">
+        <video id="camera-video" class="position-absolute top-0 start-0 w-100 h-100" autoplay playsinline muted></video>
+
+        <!-- Top bar -->
+        <div class="position-absolute top-0 start-0 w-100 d-flex justify-content-between align-items-center p-3 z-3">
+            <button id="cam-close" class="cam-btn bg-dark bg-opacity-50 text-white">
+                <i class="bi bi-x-lg"></i>
+            </button>
+            <button id="cam-flash" class="cam-btn bg-dark bg-opacity-50 text-white" title="Toggle Flash">
+                <i class="bi bi-lightning"></i>
+            </button>
+        </div>
+
+        <!-- Bottom bar -->
+        <div
+            class="position-absolute bottom-0 start-0 w-100 d-flex justify-content-center align-items-center gap-5 pb-5 z-3">
+            <button id="cam-flip" class="cam-btn bg-dark bg-opacity-50 text-white" title="Switch Camera">
+                <i class="bi bi-arrow-repeat"></i>
+            </button>
+            <button id="cam-shutter" class="cam-btn cam-shutter" title="Capture"></button>
+            <div style="width: 56px;"></div> <!-- spacer -->
         </div>
     </div>
 
@@ -315,7 +406,7 @@
 
     <script>
         /* ===================== CONFIG ===================== */
-        const GROQ_API_KEY = "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";
+        const GROQ_API_KEY = "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"; // NOTE: Remember to keep this private in production!
         const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
         const GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models";
         let currentModel = "llama-3.3-70b-versatile"; // Safe default
@@ -339,6 +430,204 @@
             return (s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
         }
 
+        /* ===================== IMAGE / PDF / CAMERA HANDLING ===================== */
+        let currentImageData = null;
+
+        function compressImage(imgSrc) {
+            return new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX = 1600;
+                    let w = img.width, h = img.height;
+                    if (w > h && w > MAX) { h *= MAX / w; w = MAX; }
+                    else if (h > MAX) { w *= MAX / h; h = MAX; }
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', 0.85));
+                };
+                img.src = imgSrc;
+            });
+        }
+
+        function setPreview(dataUrl, label) {
+            currentImageData = dataUrl;
+            $('#image-preview').src = dataUrl;
+            $('#image-preview-label').textContent = label || '';
+            $('#image-preview-container').classList.remove('d-none');
+        }
+
+        // --- File / PDF attach ---
+        $('#btn-attach').onclick = () => $('#file-input').click();
+
+        $('#file-input').onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (file.type === 'application/pdf') {
+                await handlePDF(file);
+            } else {
+                // Image file
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    const compressed = await compressImage(ev.target.result);
+                    setPreview(compressed, file.name);
+                };
+                reader.readAsDataURL(file);
+            }
+        };
+
+        async function handlePDF(file) {
+            try {
+                showToast('Processing PDF...');
+                const arrayBuf = await file.arrayBuffer();
+
+                pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.worker.min.js';
+
+                const pdf = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+                const totalPages = pdf.numPages;
+                showToast(`PDF loaded: ${totalPages} page(s)`);
+
+                // Render pages onto canvases
+                const pageCanvases = [];
+                let totalHeight = 0;
+                let maxWidth = 0;
+
+                for (let p = 1; p <= Math.min(totalPages, 10); p++) {
+                    const page = await pdf.getPage(p);
+                    const scale = 2.0;
+                    const vp = page.getViewport({ scale });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = vp.width;
+                    canvas.height = vp.height;
+                    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+                    pageCanvases.push(canvas);
+                    totalHeight += vp.height;
+                    if (vp.width > maxWidth) maxWidth = vp.width;
+                }
+
+                // Stitch pages into one image
+                const merged = document.createElement('canvas');
+                merged.width = maxWidth;
+                merged.height = totalHeight;
+                const mCtx = merged.getContext('2d');
+                let yOff = 0;
+                for (const pc of pageCanvases) {
+                    mCtx.drawImage(pc, 0, yOff);
+                    yOff += pc.height;
+                }
+
+                const dataUrl = merged.toDataURL('image/jpeg', 0.85);
+                setPreview(dataUrl, `${file.name} (${Math.min(totalPages, 10)} pg)`);
+            } catch (err) {
+                console.error('PDF Error:', err);
+                showToast('Failed to process PDF: ' + err.message);
+            }
+        }
+
+        $('#btn-remove-image').onclick = () => {
+            currentImageData = null;
+            $('#image-preview-container').classList.add('d-none');
+            $('#file-input').value = '';
+        };
+
+        /* ===================== CAMERA ===================== */
+        let cameraStream = null;
+        let cameraFacingMode = 'environment'; // 'environment' = back, 'user' = front
+        let flashOn = false;
+
+        async function openCamera() {
+            const overlay = $('#camera-overlay');
+            overlay.classList.remove('d-none');
+
+            await startCameraStream();
+        }
+
+        async function startCameraStream() {
+            // Stop previous stream if any
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+            }
+
+            try {
+                cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: cameraFacingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                    audio: false
+                });
+                $('#camera-video').srcObject = cameraStream;
+
+                // Reset flash state on new stream
+                flashOn = false;
+                updateFlashIcon();
+            } catch (err) {
+                console.error('Camera error:', err);
+                showToast('Camera access denied or not available');
+                closeCamera();
+            }
+        }
+
+        function closeCamera() {
+            if (cameraStream) {
+                cameraStream.getTracks().forEach(t => t.stop());
+                cameraStream = null;
+            }
+            $('#camera-video').srcObject = null;
+            $('#camera-overlay').classList.add('d-none');
+            flashOn = false;
+        }
+
+        function toggleFlash() {
+            if (!cameraStream) return;
+            const track = cameraStream.getVideoTracks()[0];
+            if (!track) return;
+
+            const caps = track.getCapabilities ? track.getCapabilities() : {};
+            if (!caps.torch) {
+                showToast('Flash not supported on this device/camera');
+                return;
+            }
+
+            flashOn = !flashOn;
+            track.applyConstraints({ advanced: [{ torch: flashOn }] })
+                .catch(() => showToast('Could not toggle flash'));
+            updateFlashIcon();
+        }
+
+        function updateFlashIcon() {
+            const icon = $('#cam-flash i');
+            if (flashOn) {
+                icon.className = 'bi bi-lightning-fill';
+                $('#cam-flash').classList.add('text-warning');
+            } else {
+                icon.className = 'bi bi-lightning';
+                $('#cam-flash').classList.remove('text-warning');
+            }
+        }
+
+        async function flipCamera() {
+            cameraFacingMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+            await startCameraStream();
+        }
+
+        function capturePhoto() {
+            const video = $('#camera-video');
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+            setPreview(dataUrl, cameraFacingMode === 'user' ? 'Front Camera' : 'Back Camera');
+            closeCamera();
+        }
+
+        // Wire up camera buttons
+        $('#btn-camera').onclick = () => openCamera();
+        $('#cam-close').onclick = () => closeCamera();
+        $('#cam-flip').onclick = () => flipCamera();
+        $('#cam-flash').onclick = () => toggleFlash();
+        $('#cam-shutter').onclick = () => capturePhoto();
+
         /* ===================== CRYPTO LOGIC ===================== */
         const SECRET_KEY = "HURUP_SECURE_KEY_v1";
         function encrypt(text) {
@@ -361,7 +650,6 @@
         function launchGame(jsonData) {
             if (!jsonData) return;
 
-            // Download JSON as game.json file
             const jsonStr = JSON.stringify(jsonData, null, 2);
             const blob = new Blob([jsonStr], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -373,7 +661,6 @@
 
             showToast('game.json downloaded! Move it to the project folder, then click Play Preview again.');
 
-            // Launch the game by fetching from game.json
             const overlay = document.getElementById('game-overlay');
             overlay.classList.remove('d-none');
             document.body.style.overflow = 'hidden';
@@ -404,9 +691,9 @@
 
             /* --- POSITIONING CONFIG --- */
             const USER_POSITION_TWEAK = {
-                ANGULAR_OFFSET_DEG: 7.5,   // Rotates items along the ring
-                RADIAL_OFFSET_FACTOR: 0.025, // Distance from ring (2.5%)
-                VERTICAL_PX: 0             // Up/Down shift in pixels
+                ANGULAR_OFFSET_DEG: 7.5,
+                RADIAL_OFFSET_FACTOR: 0.025,
+                VERTICAL_PX: 0
             };
 
             function resize() {
@@ -426,7 +713,7 @@
                     }
                 };
                 updateDomPositions();
-                updateUi(); // Ensure selection box is visible immediately
+                updateUi();
             }
 
             const polar = (c, r, a) => ({ x: c.x + r * Math.cos(a), y: c.y + r * Math.sin(a) });
@@ -452,13 +739,11 @@
 
             function render() {
                 ctx.clearRect(0, 0, w, h);
-                // Draw Ring
                 ctx.save(); ctx.translate(cx, cy); ctx.beginPath(); ctx.arc(0, 0, geom.ringOuter, 0, Math.PI * 2); ctx.arc(0, 0, geom.ringRoot, 0, Math.PI * 2, true); ctx.fillStyle = '#0d6efd'; ctx.fill();
                 ctx.rotate(state.ringAngle + (15 * Math.PI / 180)); ctx.fillStyle = '#0a58ca'; ctx.beginPath(); ctx.arc(0, 0, geom.ringRoot, 0, Math.PI * 2); ctx.fill();
                 ctx.fillStyle = '#3d8bfd'; drawGearPath(ctx, { x: 0, y: 0 }, RING_TEETH, geom.ringRoot, geom.ringTip, true); ctx.fill();
                 ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.stroke(); ctx.restore();
 
-                // Draw Gear
                 ctx.save(); ctx.translate(geom.gearCenter.x, geom.gearCenter.y); ctx.rotate(state.gearAngle);
                 ctx.shadowColor = 'rgba(0,0,0,0.3)'; ctx.shadowBlur = 15;
                 const grad = ctx.createRadialGradient(0, 0, geom.gearRoot * 0.2, 0, 0, geom.gearTip);
@@ -466,7 +751,6 @@
                 ctx.fillStyle = grad; drawGearPath(ctx, { x: 0, y: 0 }, GEAR_TEETH, geom.gearRoot, geom.gearTip, false); ctx.fill();
                 ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255,255,255,0.4)'; ctx.lineWidth = 2; ctx.stroke();
 
-                // Text
                 ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = 'bold 14px sans-serif'; ctx.fillStyle = '#000';
                 const textR = geom.gearRoot * 0.75, step = (2 * Math.PI) / GEAR_TEETH;
                 innerItems.forEach((label, i) => {
@@ -485,6 +769,7 @@
                 if (letters.length === 2) return letters.join('').toLowerCase();
                 return null;
             }
+
             function updateDomPositions() {
                 const container = document.getElementById('game-flags-container');
                 if (container.children.length !== outerItems.length) {
@@ -540,9 +825,8 @@
                 });
             }
 
-
             function updateUi() {
-                const contactAng = 0; // The fixed "Right" position
+                const contactAng = 0;
                 const step = (Math.PI * 2) / GEAR_TEETH;
                 const rawIdx = (contactAng - state.gearAngle) / step;
                 let idx = Math.round(rawIdx) % GEAR_TEETH; if (idx < 0) idx += GEAR_TEETH;
@@ -556,11 +840,8 @@
                     qContainer.style.maxWidth = '300px';
                 }
 
-                // Always show Q&A for the active key (the one in the selection box)
                 if (qData) {
                     qPanel.innerText = qData.q;
-
-                    // Show the answer as well
                     const aText = document.getElementById('game-a-text');
                     const aValue = document.getElementById('game-a-value');
                     if (aText && aValue) {
@@ -573,27 +854,17 @@
                     if (aText) aText.style.display = 'none';
                 }
 
-                // ALWAYS SHOW BOX: Position it over both inner text (on gear) and outer flag (on ring) at Angle 0 (Right)
                 box.classList.remove('d-none');
-
-                // Inner text is at angle 0 relative to GEAR CENTER
-                // Text radius on gear: geom.gearRoot * 0.75
                 const innerTextR = geom.gearRoot * 0.75;
-                const innerTextX = geom.gearCenter.x + innerTextR; // At angle 0
-
-                // Outer edge: Use the outer edge of the blue ring (geom.ringOuter)
-                // Then add offset for where flags actually sit
+                const innerTextX = geom.gearCenter.x + innerTextR;
                 const outerEdgeX = cx + geom.ringOuter + (minDim * USER_POSITION_TWEAK.RADIAL_OFFSET_FACTOR) + (minDim * 0.08);
 
-                // Box spans from inner text center to outer edge
-                const padding = 50; // Increased padding on each end
+                const padding = 50;
                 const startX = innerTextX - padding;
                 const endX = outerEdgeX + padding;
 
                 const boxWidth = endX - startX;
-                const boxHeight = 50; // Slightly shorter for cleaner look
-
-                // Vertical center: average of gear center Y and ring center Y
+                const boxHeight = 50;
                 const centerY = (geom.gearCenter.y + cy) / 2;
 
                 box.style.left = startX + 'px';
@@ -641,6 +912,7 @@
                 updateDomPositions(); updateUi();
             };
             window.onmouseup = window.ontouchend = () => state.isDragging = false;
+
             function loop() {
                 if (!state.isDragging && Math.abs(state.velocity) > 0.001) {
                     state.velocity *= 0.95; state.ringAngle += state.velocity; state.gearAngle = state.ringAngle * 1.5;
@@ -682,10 +954,22 @@
             return data.choices?.[0]?.message?.content || "";
         }
 
+        /* ===================== OCR (Tesseract.js) ===================== */
+        async function extractTextFromImage(imageData) {
+            const result = await Tesseract.recognize(imageData, 'eng', {
+                logger: m => {
+                    if (m.status === 'recognizing text') {
+                        const pct = Math.round((m.progress || 0) * 100);
+                        updateThinkingText(`OCR Processing... ${pct}%`);
+                    }
+                }
+            });
+            return result.data.text.trim();
+        }
+
         function extractBlock(text) { return text.replace(/```(tsv|json)?/g, '').trim(); }
         function tryParseJSON(text) { try { return JSON.parse(extractBlock(text)); } catch { return null; } }
 
-        // Render Functions
         function renderUser(text) {
             const tpl = $('#tpl-user').content.cloneNode(true);
             tpl.querySelector('.msg-content').textContent = text;
@@ -729,9 +1013,7 @@
             node.querySelector('.btn-save-browser').onclick = () => {
                 const jsonStr = JSON.stringify(obj, null, 2);
                 const encrypted = encrypt(jsonStr);
-
-                // Transfer data to the production game on GitHub Pages
-                const targetUrl = 'https://hurup.in/dist/index.html#import=' + encodeURIComponent(encrypted);
+                const targetUrl = '[https://hurup.in/dist/index.html#import=](https://hurup.in/dist/index.html#import=)' + encodeURIComponent(encrypted);
                 showToast('Opening game with your custom questions...');
                 window.open(targetUrl, '_blank');
             };
@@ -744,9 +1026,14 @@
             const div = document.createElement('div');
             div.className = 'd-flex align-items-center justify-content-center py-4 text-muted fade-in-up';
             div.dataset.thinking = '1';
-            div.innerHTML = `<div class="spinner-border spinner-border-sm me-2" role="status"></div><span class="small fst-italic">${escapeHTML(msg)}</span>`;
+            div.innerHTML = `<div class="spinner-border spinner-border-sm me-2" role="status"></div><span class="small fst-italic" data-thinking-text>${escapeHTML(msg)}</span>`;
             chat.appendChild(div);
             $('#chat-scroll-area').scrollTop = $('#chat-scroll-area').scrollHeight;
+        }
+
+        function updateThinkingText(msg) {
+            const el = chat.querySelector('[data-thinking-text]');
+            if (el) el.textContent = msg;
         }
 
         function clearThinking() {
@@ -761,13 +1048,6 @@
             chat.appendChild(div);
         }
 
-        // --- Logic Glue ---
-        const STRICT = {
-            keywordMaxLen: 12, keywordsLettersOnly: true, keywordsUnique: true, answersUnique: true,
-            qMinWords: 15, qMaxWords: 40, allowLocalKeywordRepair: true
-        };
-        const FORBIDDEN_KEYS = ['cloud', 'network', 'server', 'client', 'system', 'software', 'hardware']; // abbreviated for brevity
-
         function buildTSVSystem(topic) {
             return `You are a Generator. Output ONLY TSV. Topic: "${topic}". Header: #\tKeyword\tFull Question\tAnswer.
 
@@ -778,48 +1058,19 @@ STRUCTURE: Generate exactly 16 Q&A rows + 8 confuser answers:
   - The answer for Row 1 must NOT be a technically correct answer for Row 9, and vice versa.
   - Use specific details/adjectives to differentiate.
   
-  Example BAD Pair (Too similar/ambiguous):
-  - Q1: "What controls games?" -> A: "Joystick"
-  - Q2: "What controls games?" -> A: "Gamepad"
-  
-  Example GOOD Pair (Mutually Exclusive):
-  - Q1: "What is the *stick-based* controller common in *arcades*?" -> A: "Joystick"
-  - Q2: "What is the *handheld* controller with *two thumbsticks*?" -> A: "Gamepad"
-
 - After row 16, add 8 more rows (17-24) with JUST confuser answers.
   - Row 17 must be a "Confuser" specifically for the pair (Row 1 & Row 9). It must be VERY SIMILAR contextually to Answer 1 and Answer 9 but clearly incorrect/distinct.
   - Row 18 matches Row 2 & 10, etc.
   
-IMPORTANT: The 3 answers in each triplet (e.g., Row 1, Row 9, Row 17) MUST BE CLOSELY RELATED.
-  - Example Trio: "New Delhi" (Correct), "Delhi" (Similar/Alt), "Mumbai" (Confuser - same country/category).
-  - Example Trio: "Lion" (Correct), "Panthera leo" (Scientific), "Tiger" (Confuser - same family).
-
 Rules: Keyword: Single word, A-Z, <=12 chars, ALL UNIQUE. Question: 15-40 words. Answer: 1-4 words.
 CRITICAL: YOU MUST GENERATE EXACTLY 24 ROWS. 
 - Rows 1-16: Question & Answer pairs.
 - Rows 17-24: CONFUSER ANSWERS (Keyword="CX", Question="CX", Answer=Specific Confuser for the pair N and N+8).
 ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
         }
+
         function buildJSONSystem(tsv, topic) {
             return `You are a JSON Generator. Input TSV:\n${tsv}\nOutput JSON object with keys: qas (array of 16 objects with key, question, answer - ONLY first 16 rows), innerOrder (16 keywords), outerFlags (all 24 answers). ALL strings must be UNIQUE. Note: Use "key" as the property name for the keyword in the qas objects.`;
-        }
-
-        // Step 2: Generate unique meaningful keywords for each question
-        function buildKeywordSystem(questions, answers) {
-            const qList = questions.map((q, i) => `${i + 1}. Q: "${q}" | Answer: "${answers[i]}"`).join('\n');
-            return `You are a Keyword Generator. For each question below, create a UNIQUE, meaningful 1-2 word keyword (max 12 chars) that captures the essence of the question.
-
-RULES:
-1. Keywords must be UNIQUE - no duplicates allowed
-2. Keywords must NOT be the same as the answer
-3. Keywords should be descriptive and meaningful (e.g., "CapitalCity", "LargestState", "CityOfJoy")
-4. Use CamelCase for multi-word keywords
-5. No numbers or special characters
-
-Questions:
-${qList}
-
-Output ONLY a JSON array of 24 keyword strings in same order. Example: ["CapitalCity", "LargestState", "CityOfJoy", ...]`;
         }
 
         function splitTopic(text) { return text.replace(/make|generate|rows|table|questions/gi, '').trim() || "General Knowledge"; }
@@ -835,7 +1086,6 @@ Output ONLY a JSON array of 24 keyword strings in same order. Example: ["Capital
             }
             if (rows.length < 24) return { ok: false, reason: `Got ${rows.length}/24 rows (need 16 Q&A + 8 Confusers)` };
 
-            // Validate ALL answers for uniqueness
             const allAnswers = new Set();
             for (const r of rows) {
                 const ans = r[3].toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -846,57 +1096,43 @@ Output ONLY a JSON array of 24 keyword strings in same order. Example: ["Capital
             }
 
             const valid = rows.slice(0, 24);
-
-            // Extract meaningful keywords from questions instead of using LLM-generated ones
-            // Track used keywords to handle duplicates
             const usedKeywords = new Set();
             const processedRows = valid.map((row, idx) => {
                 if (idx < 16) {
                     let extractedKeyword = extractKeyword(row[2], row[3], idx);
-
-                    // If keyword already used, append index to make unique
                     const keyLower = extractedKeyword.toLowerCase();
                     if (usedKeywords.has(keyLower)) {
                         extractedKeyword = extractedKeyword.slice(0, 10) + (idx + 1);
                     }
                     usedKeywords.add(extractedKeyword.toLowerCase());
-
                     return [row[0], extractedKeyword, row[2], row[3]];
                 } else {
-                    // Confusers (no keyword needed in innerOrder)
                     return [row[0], row[1], row[2], row[3]];
                 }
             });
 
-            // Quick validation with extracted keywords (First 16 only)
             const keys = new Set(processedRows.slice(0, 16).map(r => r[1].toLowerCase()));
             if (keys.size !== 16) return { ok: false, reason: "Duplicate Keywords after extraction", rows: processedRows };
             return { ok: true, rows: processedRows };
         }
 
-        // Extract meaningful keyword from question text, avoiding the answer
         function extractKeyword(question, answer, index) {
-            // List of stop words to ignore (only truly meaningless words)
             const stopWords = ['what', 'which', 'who', 'how', 'when', 'where', 'is', 'are', 'was', 'were',
                 'the', 'a', 'an', 'of', 'in', 'to', 'for', 'with', 'on', 'at', 'by', 'from', 'as',
                 'name', 'called', 'known', 'type', 'kind', 'current', 'first', 'second', 'main',
                 'india', 'indian', 'that', 'this', 'its', 'it', 'and', 'or', 'but', 'does', 'has', 'have',
                 'term', 'popular', 'famous'];
 
-            // Add answer words to exclusion list
             const answerWords = answer.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/);
             const excludeWords = [...stopWords, ...answerWords];
 
-            // Clean and split question
             const words = question.toLowerCase()
                 .replace(/[^a-z\s]/g, '')
                 .split(/\s+/)
                 .filter(w => w.length > 2 && !excludeWords.includes(w));
 
-            // Get first two meaningful words and combine them (full words)
             let keyword = '';
             if (words.length >= 2) {
-                // Combine first two full words for meaningful keyword
                 const w1 = words[0].charAt(0).toUpperCase() + words[0].slice(1);
                 const w2 = words[1].charAt(0).toUpperCase() + words[1].slice(1);
                 keyword = (w1 + w2).slice(0, 12);
@@ -904,10 +1140,8 @@ Output ONLY a JSON array of 24 keyword strings in same order. Example: ["Capital
                 keyword = words[0].charAt(0).toUpperCase() + words[0].slice(1);
                 keyword = keyword.slice(0, 12);
             } else {
-                // Fallback with index
                 keyword = 'Question' + (index + 1);
             }
-
             return keyword;
         }
 
@@ -917,23 +1151,57 @@ Output ONLY a JSON array of 24 keyword strings in same order. Example: ["Capital
             return { ok: true };
         }
 
-        // Main Controller
-        // Main Controller
-        // Refactored to support robust auto-retry on ANY error
-        async function executeGenerationFlow(topic, retryCount = 0) {
+        // Main Controller - Updated for image data
+        async function executeGenerationFlow(topic, imageData = null, retryCount = 0) {
             try {
-                // Clear any previous error/thinking
                 clearThinking();
-                renderThinking(retryCount > 0 ? `Attempt ${retryCount + 1}: Generating TSV...` : "Generating TSV...");
 
-                const tsvResp = await groqChat([{ role: 'system', content: buildTSVSystem(topic) }, { role: 'user', content: `Topic: ${topic}` }]);
+                let extractedText = '';
+
+                // If image is provided, extract text using Tesseract.js OCR
+                if (imageData) {
+                    renderThinking('OCR Processing... 0%');
+                    extractedText = await extractTextFromImage(imageData);
+                    clearThinking();
+
+                    if (!extractedText) {
+                        renderError('Could not extract any text from the image. Please try a clearer image.');
+                        return;
+                    }
+
+                    showToast(`OCR done — extracted ${extractedText.length} characters`);
+                }
+
+                renderThinking(retryCount > 0 ? `Attempt ${retryCount + 1}: Generating TSV...` : 'Generating TSV...');
+
+                let systemPrompt = buildTSVSystem(topic);
+                let userContent = `Topic: ${topic}`;
+
+                if (extractedText) {
+                    systemPrompt += `\n\nCRITICAL: The user provided an image from which the following text was extracted via OCR. Base your 24 Q&A rows STRICTLY on this extracted content:\n\n"""\n${extractedText}\n"""`;
+                    if (topic && topic.toLowerCase() !== 'general knowledge') {
+                        systemPrompt += ` Focus specifically on the topic: ${topic}.`;
+                    }
+                    userContent = `Topic: ${topic}\nGenerate the exact 24 TSV rows based on the extracted text above.`;
+                }
+
+                const messages = [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userContent }
+                ];
+
+                const tsvResp = await groqChat(messages, false);
                 let tsv = extractBlock(tsvResp);
                 let parsed = parseTSV(tsv);
 
                 if (!parsed.ok) {
                     clearThinking(); renderThinking("Fixing TSV...");
-                    const fixResp = await groqChat([{ role: 'system', content: buildTSVSystem(topic) }, { role: 'user', content: `Fix error: ${parsed.reason}\nPrevious:\n${tsv}` }]);
-                    tsv = extractBlock(fixResp); // Update TSV variable for next steps
+                    // Provide the error and previous TSV to standard text model to fix structure
+                    const fixResp = await groqChat([
+                        { role: 'system', content: buildTSVSystem(topic) },
+                        { role: 'user', content: `Fix error: ${parsed.reason}\nPrevious output:\n${tsv}` }
+                    ]);
+                    tsv = extractBlock(fixResp);
                     parsed = parseTSV(tsv);
                 }
 
@@ -941,7 +1209,6 @@ Output ONLY a JSON array of 24 keyword strings in same order. Example: ["Capital
                 if (!parsed.ok) throw new Error(parsed.reason);
                 renderTable(parsed.rows);
 
-                // Step 2: Generate unique keywords via LLM - ONE CALL PER QUESTION
                 const keywords = [];
                 const usedKeywords = new Set();
 
@@ -957,11 +1224,10 @@ Question: "${question}"
 Answer: "${answer}"
 
 RULES:
-1. Label must NOT contain any words from the Answer (e.g. if Answer is "Samosa", Label cannot be "Samosa Dish").
+1. Label must NOT contain any words from the Answer.
 2. Label must NOT be any of these already used: [${usedList}]
-3. Label must catch the KEY concept (e.g., "Fried Pastry", "Clay Oven", "Spicy Rice").
+3. Label must catch the KEY concept.
 4. Use Title Case. Spaces are allowed. NO special chars.
-
 Output ONLY the label.`;
 
                     let attempts = 0;
@@ -975,17 +1241,13 @@ Output ONLY the label.`;
                                 { role: 'user', content: prompt }
                             ]);
 
-                            // Allow A-Z and Spaces
                             let keyword = resp.trim().replace(/[^a-zA-Z\s]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
 
-                            // Ensure uniqueness and validity
                             if (keyword && keyword.length > 2 && !usedKeywords.has(keyword.toLowerCase())) {
                                 keywords.push(keyword);
                                 usedKeywords.add(keyword.toLowerCase());
                                 success = true;
                             } else if (attempts === 3) {
-                                // Fallback on last attempt
-                                // Try extracting from question just in case
                                 const stopWords = ['what', 'which', 'who', 'how', 'when', 'where', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'];
                                 keyword = parsed.rows[i][2].split(' ')
                                     .map(w => w.replace(/[^a-zA-Z]/g, ''))
@@ -1005,21 +1267,17 @@ Output ONLY the label.`;
                                 usedKeywords.add(`question${i + 1}`);
                                 success = true;
                             } else {
-                                await new Promise(r => setTimeout(r, 1000)); // Wait 1s before retry
+                                await new Promise(r => setTimeout(r, 1000));
                             }
                         }
                     }
                 }
 
-                // Step 3: Build final JSON
                 clearThinking(); renderThinking("Building final JSON...");
                 const jsonResp = await groqChat([{ role: 'system', content: buildJSONSystem(tsv, topic) }, { role: 'user', content: "Generate JSON" }], true);
                 let obj = tryParseJSON(jsonResp);
 
-                // Post-process: Replace LLM keys with our generated keywords
-                // Post-process: Replace LLM keys with our generated keywords
                 if (obj && obj.qas && parsed.rows) {
-                    // STRICTLY LIMIT QAS TO 16 ITEMS
                     const qasRows = parsed.rows.slice(0, 16);
                     obj.qas = qasRows.map((row, idx) => ({
                         key: keywords[idx] || `Item${idx + 1}`,
@@ -1027,29 +1285,20 @@ Output ONLY the label.`;
                         answer: row[3]
                     }));
 
-                    // Update innerOrder with generated keywords (16 items)
                     obj.innerOrder = keywords.slice(0, 16);
-
-                    // Update outerFlags with ALL 24 answers (16 Q&A + 8 confusers)
                     let allFlags = parsed.rows.slice(0, 24).map(r => r[3]);
 
-                    // Shuffle triplets: For each column 0-7, shuffle the items at [i, i+8, i+16]
                     for (let i = 0; i < 8; i++) {
-                        // Get the 3 items for this column
                         const indices = [i, i + 8, i + 16];
                         const items = indices.map(idx => allFlags[idx]);
 
-                        // Shuffle these 3 items
                         for (let j = items.length - 1; j > 0; j--) {
                             const k = Math.floor(Math.random() * (j + 1));
                             [items[j], items[k]] = [items[k], items[j]];
                         }
-
-                        // Put them back
                         indices.forEach((idx, k) => { allFlags[idx] = items[k]; });
                     }
 
-                    // Rotate: Move first item to bottom
                     const firstFlag = allFlags.shift();
                     allFlags.push(firstFlag);
                     obj.outerFlags = allFlags;
@@ -1068,31 +1317,40 @@ Output ONLY the label.`;
                 console.error("Generation Error:", e);
                 clearThinking();
 
-                // CRITICAL: Global Retry Mechanism
-                const MAX_RETRIES = 2; // Total 3 attempts
+                const MAX_RETRIES = 2;
                 if (retryCount < MAX_RETRIES) {
                     const delay = 1500;
                     renderThinking(`Error: ${e.message}. Retrying automatically (${retryCount + 1}/${MAX_RETRIES})...`);
                     await new Promise(r => setTimeout(r, delay));
-                    return executeGenerationFlow(topic, retryCount + 1);
+                    return executeGenerationFlow(topic, imageData, retryCount + 1);
                 }
 
                 renderError(`Failed after ${retryCount + 1} attempts. Last error: ${e.message}`);
             }
         }
 
+        // Updated button click logic
         $('#btn-send').onclick = () => {
             const raw = input.value.trim();
-            if (!raw) return;
-            renderUser(raw);
-            input.value = '';
+
+            if (!raw && !currentImageData) return;
+
+            let msgText = raw || "Image provided";
+            if (currentImageData && raw) msgText += ' [Image Attached]';
+
+            renderUser(msgText);
+
             const topic = splitTopic(raw);
-            executeGenerationFlow(topic);
+            const imgDataCopy = currentImageData;
+
+            input.value = '';
+            $('#btn-remove-image').click();
+
+            executeGenerationFlow(topic, imgDataCopy);
         };
 
         input.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#btn-send').click(); } };
 
-        // Theme Toggle
         const applyTheme = (t) => document.documentElement.setAttribute('data-bs-theme', t);
         if (localStorage.getItem('theme') === 'dark') applyTheme('dark');
 
@@ -1103,7 +1361,6 @@ Output ONLY the label.`;
             localStorage.setItem('theme', next);
         };
 
-        // Dynamic Model Selection
         async function fetchBestModel() {
             try {
                 const badge = $('#model-badge');
@@ -1121,7 +1378,6 @@ Output ONLY the label.`;
                 const data = await res.json();
                 const models = data.data;
 
-                // Priority list
                 const priorities = [
                     "llama-3.3-70b-versatile",
                     "llama-3.1-70b-versatile",
@@ -1130,7 +1386,6 @@ Output ONLY the label.`;
 
                 let selected = null;
 
-                // 1. Check exact matches from priority list
                 for (const p of priorities) {
                     if (models.find(m => m.id === p)) {
                         selected = p;
@@ -1138,19 +1393,16 @@ Output ONLY the label.`;
                     }
                 }
 
-                // 2. Fallback: Any Llama 70B model
                 if (!selected) {
                     const fallback = models.find(m => m.id.includes("llama") && m.id.includes("70b"));
                     if (fallback) selected = fallback.id;
                 }
 
-                // 3. Fallback: Keep default
                 if (selected) {
                     currentModel = selected;
                 }
 
                 badge.textContent = `Groq ${currentModel}`;
-                console.log("Selected Model:", currentModel);
 
             } catch (e) {
                 console.error("Model fetch error:", e);
@@ -1158,14 +1410,9 @@ Output ONLY the label.`;
             }
         }
 
-        // Initialize
         fetchBestModel();
-        renderUser("Bootstrap 5 + Groq Ready. Type a topic!");
+        renderUser("Bootstrap 5 + Groq Ready. Type a topic or upload an image!");
     </script>
 </body>
 
 </html>
-
-
-
-
