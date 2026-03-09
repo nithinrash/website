@@ -650,31 +650,10 @@
         function launchGame(jsonData) {
             if (!jsonData) return;
 
-            const jsonStr = JSON.stringify(jsonData, null, 2);
-            const blob = new Blob([jsonStr], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'game.json';
-            a.click();
-            URL.revokeObjectURL(url);
-
-            showToast('game.json downloaded! Move it to the project folder, then click Play Preview again.');
-
             const overlay = document.getElementById('game-overlay');
             overlay.classList.remove('d-none');
             document.body.style.overflow = 'hidden';
-
-            fetch('./game.json?' + Date.now())
-                .then(res => {
-                    if (!res.ok) throw new Error('File not found');
-                    return res.json();
-                })
-                .then(data => initGameEngine(data))
-                .catch(err => {
-                    console.warn('game.json not available yet, using generated data:', err);
-                    initGameEngine(jsonData);
-                });
+            initGameEngine(jsonData);
         }
 
         function initGameEngine(data) {
@@ -1013,7 +992,7 @@
             node.querySelector('.btn-save-browser').onclick = () => {
                 const jsonStr = JSON.stringify(obj, null, 2);
                 const encrypted = encrypt(jsonStr);
-                const targetUrl = '[https://hurup.in/dist/index.html#import=](https://hurup.in/dist/index.html#import=)' + encodeURIComponent(encrypted);
+                const targetUrl = 'https://hurup.in/dist/index.html#import=' + encodeURIComponent(encrypted);
                 showToast('Opening game with your custom questions...');
                 window.open(targetUrl, '_blank');
             };
