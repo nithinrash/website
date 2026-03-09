@@ -986,11 +986,11 @@
             const node = tpl.firstElementChild;
             node.querySelector('[data-json]').textContent = JSON.stringify(obj, null, 2);
 
-            const btnPlay = document.createElement('button');
-            btnPlay.className = 'btn btn-sm btn-primary d-flex align-items-center gap-1';
-            btnPlay.innerHTML = '<i class="bi bi-play-fill"></i> Play Preview';
-            btnPlay.onclick = () => launchGame(obj);
-            node.querySelector('.card-footer').appendChild(btnPlay);
+      //      const btnPlay = document.createElement('button');
+      //      btnPlay.className = 'btn btn-sm btn-primary d-flex align-items-center gap-1';
+      //      btnPlay.innerHTML = '<i class="bi bi-play-fill"></i> Play Preview';
+      //      btnPlay.onclick = () => launchGame(obj);
+      //      node.querySelector('.card-footer').appendChild(btnPlay);
 
             node.querySelector('.btn-save-browser').onclick = () => {
                 const jsonStr = JSON.stringify(obj, null, 2);
@@ -1398,6 +1398,7 @@ Output ONLY the label.`;
 </body>
 
 </html>
+
 
 
 
