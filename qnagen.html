@@ -1030,8 +1030,63 @@
             chat.appendChild(div);
         }
 
+        /* ===================== KID SAFETY FILTER ===================== */
+        const BLOCKED_WORDS = [
+            // Violence & weapons
+            'kill', 'murder', 'suicide', 'rape', 'assault', 'torture', 'abuse',
+            'gun', 'weapon', 'bomb', 'terrorist', 'terrorism', 'shooting',
+            'stabbing', 'blood', 'gore', 'decapitate', 'massacre', 'genocide',
+            'slaughter', 'homicide', 'strangle', 'molest',
+            // Sexual content
+            'sex', 'sexual', 'porn', 'pornography', 'explicit', 'nude',
+            'naked', 'erotic', 'orgasm', 'genital', 'penis', 'vagina',
+            'intercourse', 'fetish', 'hentai', 'xxx', 'nsfw', 'prostitut',
+            'brothel', 'stripper',
+            // Drugs & substances
+            'cocaine', 'heroin', 'meth', 'methamphetamine', 'marijuana',
+            'cannabis', 'weed', 'lsd', 'ecstasy', 'narcotic', 'overdose',
+            'drug abuse', 'crack', 'opium', 'fentanyl',
+            // Alcohol (excessive context)
+            'drunk', 'alcoholism', 'binge drinking', 'intoxicat',
+            // Profanity
+            'fuck', 'shit', 'ass', 'bitch', 'damn', 'bastard', 'crap',
+            'dick', 'cunt', 'whore', 'slut',
+            // Hate & discrimination
+            'racist', 'racism', 'hate crime', 'homophobia', 'slur',
+            'supremacist', 'nazi', 'extremist',
+            // Gambling
+            'gambling', 'betting', 'casino',
+            // Self-harm
+            'self-harm', 'self harm', 'cutting', 'anorexia', 'bulimia'
+        ];
+
+        function contentSafetyCheck(rows) {
+            const issues = [];
+            for (const row of rows) {
+                const combined = row.join(' ').toLowerCase();
+                for (const word of BLOCKED_WORDS) {
+                    if (combined.includes(word)) {
+                        issues.push(`Blocked word "${word}" found in row: "${row[2] || row[1]}"`);
+                    }
+                }
+            }
+            return { safe: issues.length === 0, issues };
+        }
+
         function buildTSVSystem(topic) {
             return `You are a Generator. Output ONLY TSV. Topic: "${topic}". Header: #\tKeyword\tFull Question\tAnswer.
+
+⚠️ KID SAFETY — MANDATORY RULES (VIOLATION = FAILURE):
+- ALL content MUST be 100% safe for children ages 6+.
+- ABSOLUTELY NO: violence, weapons, blood, death, killing, war details, gore.
+- ABSOLUTELY NO: sexual content, nudity, romantic/adult relationships, innuendo.
+- ABSOLUTELY NO: drugs, alcohol, smoking, substance abuse, addiction.
+- ABSOLUTELY NO: profanity, slang, insults, hate speech, discrimination.
+- ABSOLUTELY NO: gambling, self-harm, horror, scary/disturbing themes.
+- ABSOLUTELY NO: controversial politics, religion bashing, or divisive topics.
+- Questions must be EDUCATIONAL, FUN, and FAMILY-FRIENDLY.
+- Think of this as content for a children's classroom quiz game.
+- When in doubt, keep it wholesome and positive.
 
 STRUCTURE: Generate exactly 16 Q&A rows + 8 confuser answers:
 - Rows 1-8: First set of 8 questions (Group A)
@@ -1189,6 +1244,20 @@ ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
 
                 clearThinking();
                 if (!parsed.ok) throw new Error(parsed.reason);
+
+                // Kid Safety Filter — check all rows for blocked content
+                const safetyResult = contentSafetyCheck(parsed.rows);
+                if (!safetyResult.safe) {
+                    console.warn('Content safety issues:', safetyResult.issues);
+                    if (retryCount < 2) {
+                        renderThinking(`Content safety issue detected. Regenerating (attempt ${retryCount + 2})...`);
+                        await new Promise(r => setTimeout(r, 500));
+                        return executeGenerationFlow(topic, imageData, retryCount + 1);
+                    }
+                    renderError('Could not generate kid-safe content after multiple attempts. Please try a different topic.');
+                    return;
+                }
+
                 renderTable(parsed.rows);
 
                 const keywords = [];
