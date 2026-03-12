@@ -204,21 +204,13 @@
 
         <footer class="p-3 border-top bg-body z-3"
             style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px)) !important;">
-            <div id="image-preview-container" class="mb-2 d-none position-relative" style="width: fit-content;">
-                <img id="image-preview" src="" class="img-thumbnail bg-secondary-subtle"
-                    style="max-height: 80px; border-radius: 8px;">
-                <span id="image-preview-label" class="badge bg-dark position-absolute bottom-0 start-0 m-1 small"
-                    style="font-size: 9px;"></span>
-                <button id="btn-remove-image"
-                    class="btn btn-sm btn-danger position-absolute top-0 start-100 translate-middle rounded-circle shadow"
-                    style="width: 24px; height: 24px; padding: 0; line-height: 1;">
-                    <i class="bi bi-x"></i>
-                </button>
+            <div id="image-preview-container" class="mb-2 d-none d-flex gap-2 align-items-center flex-wrap"
+                style="max-height: 120px; overflow-y: auto;">
             </div>
 
             <div class="card shadow-sm border-secondary-subtle">
                 <div class="card-body p-2 d-flex gap-2">
-                    <input type="file" id="file-input" accept="image/*,application/pdf" class="d-none">
+                    <input type="file" id="file-input" accept="image/*,application/pdf" class="d-none" multiple>
 
                     <button id="btn-attach"
                         class="btn btn-outline-secondary d-flex align-items-center justify-content-center"
@@ -434,7 +426,7 @@
         }
 
         /* ===================== IMAGE / PDF / CAMERA HANDLING ===================== */
-        let currentImageData = null;
+        let currentImages = []; // Array of { dataUrl, label }
 
         function compressImage(imgSrc) {
             return new Promise(resolve => {
@@ -453,30 +445,64 @@
             });
         }
 
-        function setPreview(dataUrl, label) {
-            currentImageData = dataUrl;
-            $('#image-preview').src = dataUrl;
-            $('#image-preview-label').textContent = label || '';
-            $('#image-preview-container').classList.remove('d-none');
+        function addImage(dataUrl, label) {
+            currentImages.push({ dataUrl, label: label || '' });
+            renderImagePreviews();
+        }
+
+        function renderImagePreviews() {
+            const container = $('#image-preview-container');
+            container.innerHTML = '';
+            if (currentImages.length === 0) {
+                container.classList.add('d-none');
+                return;
+            }
+            container.classList.remove('d-none');
+            currentImages.forEach((img, idx) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = 'position-relative';
+                wrapper.style.cssText = 'width: fit-content; flex-shrink: 0;';
+                wrapper.innerHTML = `
+                    <img src="${img.dataUrl}" class="img-thumbnail bg-secondary-subtle" style="max-height: 70px; border-radius: 8px;">
+                    <span class="badge bg-dark position-absolute bottom-0 start-0 m-1 small" style="font-size: 9px;">${escapeHTML(img.label)}</span>
+                    <button class="btn btn-sm btn-danger position-absolute top-0 start-100 translate-middle rounded-circle shadow"
+                        style="width: 20px; height: 20px; padding: 0; line-height: 1; font-size: 10px;"
+                        data-remove-idx="${idx}"><i class="bi bi-x"></i></button>
+                `;
+                wrapper.querySelector('[data-remove-idx]').onclick = () => {
+                    currentImages.splice(idx, 1);
+                    renderImagePreviews();
+                };
+                container.appendChild(wrapper);
+            });
+        }
+
+        function clearAllImages() {
+            currentImages = [];
+            renderImagePreviews();
+            $('#file-input').value = '';
         }
 
         // --- File / PDF attach ---
         $('#btn-attach').onclick = () => $('#file-input').click();
 
         $('#file-input').onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            const files = Array.from(e.target.files);
+            if (!files.length) return;
 
-            if (file.type === 'application/pdf') {
-                await handlePDF(file);
-            } else {
-                // Image file
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                    const compressed = await compressImage(ev.target.result);
-                    setPreview(compressed, file.name);
-                };
-                reader.readAsDataURL(file);
+            for (const file of files) {
+                if (file.type === 'application/pdf') {
+                    await handlePDF(file);
+                } else {
+                    // Image file
+                    const dataUrl = await new Promise(resolve => {
+                        const reader = new FileReader();
+                        reader.onload = (ev) => resolve(ev.target.result);
+                        reader.readAsDataURL(file);
+                    });
+                    const compressed = await compressImage(dataUrl);
+                    addImage(compressed, file.name);
+                }
             }
         };
 
@@ -521,18 +547,14 @@
                 }
 
                 const dataUrl = merged.toDataURL('image/jpeg', 0.85);
-                setPreview(dataUrl, `${file.name} (${Math.min(totalPages, 10)} pg)`);
+                addImage(dataUrl, `${file.name} (${Math.min(totalPages, 10)} pg)`);
             } catch (err) {
                 console.error('PDF Error:', err);
                 showToast('Failed to process PDF: ' + err.message);
             }
         }
 
-        $('#btn-remove-image').onclick = () => {
-            currentImageData = null;
-            $('#image-preview-container').classList.add('d-none');
-            $('#file-input').value = '';
-        };
+        // clearAllImages is defined above inside renderImagePreviews block
 
         /* ===================== CAMERA ===================== */
         let cameraStream = null;
@@ -620,7 +642,7 @@
             canvas.getContext('2d').drawImage(video, 0, 0);
             const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
-            setPreview(dataUrl, cameraFacingMode === 'user' ? 'Front Camera' : 'Back Camera');
+            addImage(dataUrl, cameraFacingMode === 'user' ? 'Front Camera' : 'Back Camera');
             closeCamera();
         }
 
@@ -986,11 +1008,11 @@
             const node = tpl.firstElementChild;
             node.querySelector('[data-json]').textContent = JSON.stringify(obj, null, 2);
 
-      //      const btnPlay = document.createElement('button');
-      //      btnPlay.className = 'btn btn-sm btn-primary d-flex align-items-center gap-1';
-      //      btnPlay.innerHTML = '<i class="bi bi-play-fill"></i> Play Preview';
-      //      btnPlay.onclick = () => launchGame(obj);
-      //      node.querySelector('.card-footer').appendChild(btnPlay);
+            //      const btnPlay = document.createElement('button');
+            //      btnPlay.className = 'btn btn-sm btn-primary d-flex align-items-center gap-1';
+            //      btnPlay.innerHTML = '<i class="bi bi-play-fill"></i> Play Preview';
+            //      btnPlay.onclick = () => launchGame(obj);
+            //      node.querySelector('.card-footer').appendChild(btnPlay);
 
             node.querySelector('.btn-save-browser').onclick = () => {
                 const jsonStr = JSON.stringify(obj, null, 2);
@@ -1189,24 +1211,30 @@ ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
         }
 
         // Main Controller - Updated for image data
-        async function executeGenerationFlow(topic, imageData = null, retryCount = 0) {
+        async function executeGenerationFlow(topic, images = [], retryCount = 0) {
             try {
                 clearThinking();
 
                 let extractedText = '';
 
-                // If image is provided, extract text using Tesseract.js OCR
-                if (imageData) {
-                    renderThinking('OCR Processing... 0%');
-                    extractedText = await extractTextFromImage(imageData);
-                    clearThinking();
+                // If images are provided, extract text from each using Tesseract.js OCR
+                if (images.length > 0) {
+                    const allTexts = [];
+                    for (let i = 0; i < images.length; i++) {
+                        renderThinking(`OCR Processing image ${i + 1}/${images.length}... 0%`);
+                        const text = await extractTextFromImage(images[i].dataUrl);
+                        clearThinking();
+                        if (text) allTexts.push(text);
+                    }
+
+                    extractedText = allTexts.join('\n\n---\n\n');
 
                     if (!extractedText) {
-                        renderError('Could not extract any text from the image. Please try a clearer image.');
+                        renderError('Could not extract any text from the images. Please try clearer images.');
                         return;
                     }
 
-                    showToast(`OCR done — extracted ${extractedText.length} characters`);
+                    showToast(`OCR done — extracted ${extractedText.length} characters from ${images.length} image(s)`);
                 }
 
                 renderThinking(retryCount > 0 ? `Attempt ${retryCount + 1}: Generating TSV...` : 'Generating TSV...');
@@ -1252,7 +1280,7 @@ ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
                     if (retryCount < 2) {
                         renderThinking(`Content safety issue detected. Regenerating (attempt ${retryCount + 2})...`);
                         await new Promise(r => setTimeout(r, 500));
-                        return executeGenerationFlow(topic, imageData, retryCount + 1);
+                        return executeGenerationFlow(topic, images, retryCount + 1);
                     }
                     renderError('Could not generate kid-safe content after multiple attempts. Please try a different topic.');
                     return;
@@ -1373,7 +1401,7 @@ Output ONLY the label.`;
                     const delay = 1500;
                     renderThinking(`Error: ${e.message}. Retrying automatically (${retryCount + 1}/${MAX_RETRIES})...`);
                     await new Promise(r => setTimeout(r, delay));
-                    return executeGenerationFlow(topic, imageData, retryCount + 1);
+                    return executeGenerationFlow(topic, images, retryCount + 1);
                 }
 
                 renderError(`Failed after ${retryCount + 1} attempts. Last error: ${e.message}`);
@@ -1384,20 +1412,20 @@ Output ONLY the label.`;
         $('#btn-send').onclick = () => {
             const raw = input.value.trim();
 
-            if (!raw && !currentImageData) return;
+            if (!raw && currentImages.length === 0) return;
 
-            let msgText = raw || "Image provided";
-            if (currentImageData && raw) msgText += ' [Image Attached]';
+            let msgText = raw || "Image(s) provided";
+            if (currentImages.length > 0 && raw) msgText += ` [${currentImages.length} Image(s) Attached]`;
 
             renderUser(msgText);
 
             const topic = splitTopic(raw);
-            const imgDataCopy = currentImageData;
+            const imagesCopy = [...currentImages];
 
             input.value = '';
-            $('#btn-remove-image').click();
+            clearAllImages();
 
-            executeGenerationFlow(topic, imgDataCopy);
+            executeGenerationFlow(topic, imagesCopy);
         };
 
         input.onkeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#btn-send').click(); } };
@@ -1467,7 +1495,3 @@ Output ONLY the label.`;
 </body>
 
 </html>
-
-
-
-
