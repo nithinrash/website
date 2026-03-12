@@ -8,7 +8,7 @@
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <!-- Vision model used instead of Tesseract OCR -->
     <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.0.379/build/pdf.min.js"></script>
 
     <style>
@@ -404,7 +404,8 @@
         const GROQ_API_KEY = "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"; // NOTE: Remember to keep this private in production!
         const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
         const GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models";
-        let currentModel = "llama-3.3-70b-versatile"; // Safe default
+        let currentModel = "llama-3.3-70b-versatile"; // Safe default for text
+        let visionModel = "llama-3.2-90b-vision-preview"; // Vision model for images
 
         /* ===================== DOM & UTILS ===================== */
         const $ = s => document.querySelector(s);
@@ -930,14 +931,14 @@
 
         /* ===================== API LOGIC ===================== */
 
-        async function groqChat(messages, useJsonMode = false) {
+        async function groqChat(messages, useJsonMode = false, modelOverride = null) {
             if (!GROQ_API_KEY || GROQ_API_KEY.includes("YOUR_")) {
                 showToast("Missing Groq API Key!");
                 throw new Error("Missing Key");
             }
 
             const payload = {
-                model: currentModel,
+                model: modelOverride || currentModel,
                 messages: messages,
                 temperature: useJsonMode ? 0.1 : 0.5,
                 max_tokens: 4096,
@@ -958,17 +959,17 @@
             return data.choices?.[0]?.message?.content || "";
         }
 
-        /* ===================== OCR (Tesseract.js) ===================== */
-        async function extractTextFromImage(imageData) {
-            const result = await Tesseract.recognize(imageData, 'eng', {
-                logger: m => {
-                    if (m.status === 'recognizing text') {
-                        const pct = Math.round((m.progress || 0) * 100);
-                        updateThinkingText(`OCR Processing... ${pct}%`);
-                    }
-                }
-            });
-            return result.data.text.trim();
+        /* ===================== VISION HELPERS ===================== */
+        function buildVisionContentArray(textPrompt, images) {
+            // Builds an OpenAI-compatible content array with text + image_url objects
+            const content = [{ type: 'text', text: textPrompt }];
+            for (const img of images) {
+                content.push({
+                    type: 'image_url',
+                    image_url: { url: img.dataUrl }
+                });
+            }
+            return content;
         }
 
         function extractBlock(text) { return text.replace(/```(tsv|json)?/g, '').trim(); }
@@ -1210,59 +1211,75 @@ ALL 24 ANSWERS MUST BE UNIQUE STRINGS. NO DUPLICATES ALLOWED.`;
             return { ok: true };
         }
 
-        // Main Controller - Updated for image data
+        // Main Controller - Two-step pipeline for images
         async function executeGenerationFlow(topic, images = [], retryCount = 0) {
             try {
                 clearThinking();
 
+                const hasImages = images.length > 0;
                 let extractedText = '';
 
-                // If images are provided, extract text from each using Tesseract.js OCR
-                if (images.length > 0) {
-                    const allTexts = [];
-                    for (let i = 0; i < images.length; i++) {
-                        renderThinking(`OCR Processing image ${i + 1}/${images.length}... 0%`);
-                        const text = await extractTextFromImage(images[i].dataUrl);
-                        clearThinking();
-                        if (text) allTexts.push(text);
-                    }
+                // STEP 1: If images provided, use Vision model to extract ALL content
+                if (hasImages) {
+                    renderThinking(`Step 1/2: Vision AI reading ${images.length} image(s)...`);
 
-                    extractedText = allTexts.join('\n\n---\n\n');
+                    const visionSystemPrompt = `You are an expert content extractor. Your ONLY job is to look at the provided image(s) and extract EVERY piece of information you can see.
 
-                    if (!extractedText) {
-                        renderError('Could not extract any text from the images. Please try clearer images.');
+INSTRUCTIONS:
+- Extract ALL text, facts, definitions, formulas, diagrams, labels, headings, bullet points, table data, and any other content visible in the image(s).
+- Preserve the structure and organization of the content (headings, sub-points, numbered lists, etc.)
+- Include specific names, dates, numbers, terms, and values EXACTLY as they appear.
+- If there are diagrams, charts, or figures, describe what they show in detail.
+- Do NOT add any commentary, opinions, or outside knowledge. ONLY output what you see.
+- Be thorough — extract EVERYTHING, even small details, footnotes, or captions.
+- Output as clean, well-organized plain text.`;
+
+                    const userTextPrompt = `Extract ALL content from the provided image(s). Be extremely thorough and detailed. Output ONLY the content you see — no extra commentary.`;
+                    const userContent = buildVisionContentArray(userTextPrompt, images);
+
+                    const visionMessages = [
+                        { role: 'system', content: visionSystemPrompt },
+                        { role: 'user', content: userContent }
+                    ];
+
+                    extractedText = await groqChat(visionMessages, false, visionModel);
+                    clearThinking();
+
+                    if (!extractedText || extractedText.trim().length < 20) {
+                        renderError('Vision AI could not extract meaningful content from the image(s). Please try clearer images.');
                         return;
                     }
 
-                    showToast(`OCR done — extracted ${extractedText.length} characters from ${images.length} image(s)`);
+                    showToast(`Vision AI extracted ${extractedText.length} characters from ${images.length} image(s)`);
                 }
 
-                renderThinking(retryCount > 0 ? `Attempt ${retryCount + 1}: Generating TSV...` : 'Generating TSV...');
+                // STEP 2: Generate TSV using the strong text model (same quality path for both text and image)
+                renderThinking(retryCount > 0 ? `Attempt ${retryCount + 1}: Generating TSV...` : (hasImages ? 'Step 2/2: Generating Q&A from extracted content...' : 'Generating TSV...'));
 
                 let systemPrompt = buildTSVSystem(topic);
                 let userContent = `Topic: ${topic}`;
 
                 if (extractedText) {
-                    systemPrompt += `\n\n🚨 ABSOLUTE HIGHEST PRIORITY — IMAGE-EXTRACTED TEXT RULES 🚨:
-The user provided image(s) from which the following text was extracted via OCR.
+                    systemPrompt += `\n\n🚨 ABSOLUTE HIGHEST PRIORITY — EXTRACTED CONTENT RULES 🚨:
+The following content was extracted from the user's image(s) using Vision AI.
 
 MANDATORY:
-1. ALL 24 Q&A rows MUST come ONLY from the extracted text below. Do NOT use any outside knowledge.
-2. Every question, answer, and keyword MUST be directly based on facts, terms, or data found in the extracted text.
-3. If the extracted text mentions a specific fact, name, date, formula, or definition — USE IT as-is.
-4. Do NOT add, invent, or supplement with information not present in the extracted text.
-5. If the extracted text is short, repeat sub-topics or ask from different angles — but NEVER go outside the text.
-6. Confuser answers (rows 17-24) should also be plausible alternatives based on the same extracted text context.
-7. Treat the extracted text as THE ONLY SOURCE OF TRUTH. Ignore your general knowledge completely.
+1. ALL 24 Q&A rows MUST come ONLY from the extracted content below. Do NOT use any outside knowledge.
+2. Every question, answer, and keyword MUST be directly based on facts, terms, or data found in the extracted content.
+3. If the content mentions a specific fact, name, date, formula, or definition — USE IT as-is.
+4. Do NOT add, invent, or supplement with information not present in the extracted content.
+5. If the content is limited, ask from different angles — but NEVER go outside the extracted content.
+6. Confuser answers (rows 17-24) should also be plausible alternatives based on the same content context.
+7. Treat the extracted content as THE ONLY SOURCE OF TRUTH. Ignore your general knowledge completely.
 
-EXTRACTED TEXT:
+EXTRACTED CONTENT:
 """
 ${extractedText}
 """`;
                     if (topic && topic.toLowerCase() !== 'general knowledge') {
-                        systemPrompt += `\nThe user also specified a topic filter: "${topic}". Focus on parts of the extracted text related to this topic, but still ONLY use data from the extracted text.`;
+                        systemPrompt += `\nThe user also specified a topic filter: "${topic}". Focus on parts of the extracted content related to this topic, but still ONLY use data from the extracted content.`;
                     }
-                    userContent = `Generate the exact 24 TSV rows using ONLY the extracted text provided. Do NOT use outside knowledge. Topic: ${topic}`;
+                    userContent = `Generate the exact 24 TSV rows using ONLY the extracted content provided. Do NOT use outside knowledge. Topic: ${topic}`;
                 }
 
                 const messages = [
@@ -1472,15 +1489,15 @@ Output ONLY the label.`;
                 const data = await res.json();
                 const models = data.data;
 
-                const priorities = [
+                // Text model priorities
+                const textPriorities = [
                     "llama-3.3-70b-versatile",
                     "llama-3.1-70b-versatile",
                     "llama3-70b-8192"
                 ];
 
                 let selected = null;
-
-                for (const p of priorities) {
+                for (const p of textPriorities) {
                     if (models.find(m => m.id === p)) {
                         selected = p;
                         break;
@@ -1496,7 +1513,30 @@ Output ONLY the label.`;
                     currentModel = selected;
                 }
 
-                badge.textContent = `Groq ${currentModel}`;
+                // Vision model priorities
+                const visionPriorities = [
+                    "llama-3.2-90b-vision-preview",
+                    "llama-3.2-11b-vision-preview"
+                ];
+
+                let selectedVision = null;
+                for (const p of visionPriorities) {
+                    if (models.find(m => m.id === p)) {
+                        selectedVision = p;
+                        break;
+                    }
+                }
+
+                if (!selectedVision) {
+                    const fallback = models.find(m => m.id.includes("vision"));
+                    if (fallback) selectedVision = fallback.id;
+                }
+
+                if (selectedVision) {
+                    visionModel = selectedVision;
+                }
+
+                badge.textContent = `Groq ${currentModel} | Vision: ${visionModel}`;
 
             } catch (e) {
                 console.error("Model fetch error:", e);
