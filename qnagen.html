@@ -1009,7 +1009,7 @@
             node.querySelector('.btn-save-browser').onclick = () => {
                 const jsonStr = JSON.stringify(obj, null, 2);
                 const encrypted = encrypt(jsonStr);
-                const targetUrl = 'https://hurup.in/dist/index.html#import=' + encodeURIComponent(encrypted);
+                const targetUrl = 'dist/index.html#import=' + encodeURIComponent(encrypted);
                 showToast('Opening game with your custom questions...');
                 window.open(targetUrl, '_blank');
             };
